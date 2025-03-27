@@ -17,44 +17,25 @@
 
 std::string connectString;
 std::string backendPid;
-long        longWait = 30;
-long        shortWait = 5;
-long        minLogLevel = LOG_ERROR;
+long longWait = 30;
+long shortWait = 5;
+long minLogLevel = LOG_ERROR;
 
 using namespace std;
 
 #define MAXATTEMPTS 10
 
 #if !BOOST_OS_WINDOWS
-bool        runInForeground = false;
+bool runInForeground = false;
 std::string logFile;
 
 #else
 // pgAgent Initialized
-void        Initialized();
+void Initialized();
 #endif
-
-void ProcessJobNotification(DBconn *serviceConn)
-{
-    while (serviceConn->PollNotification())
-    {
-        std::string payload = serviceConn->GetNotificationPayload();
-        LogMessage("Received job status update: " + payload, LOG_DEBUG);
-
-        std::istringstream ss(payload);
-        std::string jobid, status;
-        ss >> jobid >> status;
-
-        // Handle job status update
-        LogMessage("Updating job " + jobid + " status to " + status, LOG_INFO);
-    }
-}
-
 
 int MainRestartLoop(DBconn *serviceConn)
 {
-	serviceConn->ExecuteVoid("LISTEN job_status_update");
-    LogMessage("Listening for job status updates...", LOG_DEBUG);
 	// clean up old jobs
 
 	int rc;
@@ -69,8 +50,7 @@ int MainRestartLoop(DBconn *serviceConn)
 			"SELECT jagpid "
 			"  FROM pgagent.pga_jobagent AG "
 			"  LEFT JOIN pg_stat_activity PA ON jagpid=pid "
-			" WHERE pid IS NULL"
-		);
+			" WHERE pid IS NULL");
 	}
 	else
 	{
@@ -79,8 +59,7 @@ int MainRestartLoop(DBconn *serviceConn)
 			"SELECT jagpid "
 			"  FROM pgagent.pga_jobagent AG "
 			"  LEFT JOIN pg_stat_activity PA ON jagpid=procpid "
-			" WHERE procpid IS NULL"
-		);
+			" WHERE procpid IS NULL");
 	}
 
 	if (rc > 0)
@@ -102,8 +81,7 @@ int MainRestartLoop(DBconn *serviceConn)
 			"  WHERE jobagentid IN (SELECT jagpid FROM pga_tmp_zombies);\n"
 
 			"DELETE FROM pgagent.pga_jobagent "
-			"  WHERE jagpid IN (SELECT jagpid FROM pga_tmp_zombies);\n"
-		);
+			"  WHERE jagpid IN (SELECT jagpid FROM pga_tmp_zombies);\n");
 	}
 
 	rc = serviceConn->ExecuteVoid("DROP TABLE pga_tmp_zombies");
@@ -112,16 +90,13 @@ int MainRestartLoop(DBconn *serviceConn)
 
 	rc = serviceConn->ExecuteVoid(
 		"INSERT INTO pgagent.pga_jobagent (jagpid, jagstation) SELECT pg_backend_pid(), '" +
-		host_name + "'"
-	);
+		host_name + "'");
 
 	if (rc < 0)
 		return rc;
 
 	while (1)
 	{
-		ProcessJobNotification(serviceConn);
-
 		bool foundJobToExecute = false;
 
 		LogMessage("Checking for jobs to run", LOG_DEBUG);
@@ -131,9 +106,9 @@ int MainRestartLoop(DBconn *serviceConn)
 			" WHERE jobenabled "
 			"   AND jobagentid IS NULL "
 			"   AND jobnextrun <= now() "
-			"   AND (jobhostagent = '' OR jobhostagent = '" + host_name + "')"
-			" ORDER BY jobnextrun"
-		);
+			"   AND (jobhostagent = '' OR jobhostagent = '" +
+			host_name + "')"
+						" ORDER BY jobnextrun");
 
 		if (res)
 		{
@@ -160,7 +135,6 @@ int MainRestartLoop(DBconn *serviceConn)
 	return 0;
 }
 
-
 void MainLoop()
 {
 	int attemptCount = 1;
@@ -176,8 +150,7 @@ void MainLoop()
 			// Basic sanity check, and a chance to get the serviceConn's PID
 			LogMessage("Database sanity check", LOG_DEBUG);
 			DBresultPtr res = serviceConn->Execute(
-				"SELECT count(*) As count, pg_backend_pid() AS pid FROM pg_class cl JOIN pg_namespace ns ON ns.oid=relnamespace WHERE relname='pga_job' AND nspname='pgagent'"
-			);
+				"SELECT count(*) As count, pg_backend_pid() AS pid FROM pg_class cl JOIN pg_namespace ns ON ns.oid=relnamespace WHERE relname='pga_job' AND nspname='pgagent'");
 
 			if (res)
 			{
@@ -186,8 +159,7 @@ void MainLoop()
 				if (val == "0")
 					LogMessage(
 						"Could not find the table 'pgagent.pga_job'. Have you run pgagent.sql on this database?",
-						LOG_ERROR
-					);
+						LOG_ERROR);
 
 				backendPid = res->GetString("pid");
 
@@ -196,16 +168,16 @@ void MainLoop()
 
 			// Check for particular version
 			bool hasSchemaVerFunc = false;
-			std::string sqlCheckSchemaVersion	=
-				"SELECT COUNT(*)                                            " \
-				"FROM pg_proc                                               " \
-				"WHERE proname = 'pgagent_schema_version' AND               " \
-				"      pronamespace = (SELECT oid                           " \
-				"                      FROM pg_namespace                    " \
-				"                      WHERE nspname = 'pgagent') AND       " \
-				"      prorettype = (SELECT oid                             " \
-				"                    FROM pg_type                           " \
-				"                    WHERE typname = 'int2') AND            " \
+			std::string sqlCheckSchemaVersion =
+				"SELECT COUNT(*)                                            "
+				"FROM pg_proc                                               "
+				"WHERE proname = 'pgagent_schema_version' AND               "
+				"      pronamespace = (SELECT oid                           "
+				"                      FROM pg_namespace                    "
+				"                      WHERE nspname = 'pgagent') AND       "
+				"      prorettype = (SELECT oid                             "
+				"                    FROM pg_type                           "
+				"                    WHERE typname = 'int2') AND            "
 				"      proargtypes = ''                                     ";
 
 			res = serviceConn->Execute(sqlCheckSchemaVersion);
@@ -221,23 +193,20 @@ void MainLoop()
 			{
 				LogMessage(
 					"Couldn't find the function 'pgagent_schema_version' - please run ALTER EXTENSION \"pgagent\" UPDATE;.",
-					LOG_ERROR
-				);
+					LOG_ERROR);
 			}
 
 			std::string strPgAgentSchemaVer = serviceConn->ExecuteScalar(
-				"SELECT pgagent.pgagent_schema_version()"
-			);
+				"SELECT pgagent.pgagent_schema_version()");
 			std::string currentPgAgentVersion = (boost::format("%d") % PGAGENT_VERSION_MAJOR).str();
 
 			if (strPgAgentSchemaVer != currentPgAgentVersion)
 			{
 				LogMessage(
 					"Unsupported schema version: " + strPgAgentSchemaVer +
-					". Version " + currentPgAgentVersion +
-					" is required - please run ALTER EXTENSION \"pgagent\" UPDATE;.",
-					LOG_ERROR
-				);
+						". Version " + currentPgAgentVersion +
+						" is required - please run ALTER EXTENSION \"pgagent\" UPDATE;.",
+					LOG_ERROR);
 			}
 
 #ifdef WIN32
@@ -247,8 +216,10 @@ void MainLoop()
 		}
 
 		LogMessage((boost::format(
-			"Couldn't create the primary connection [Attempt #%d]") % attemptCount
-		).str(), LOG_STARTUP);
+						"Couldn't create the primary connection [Attempt #%d]") %
+					attemptCount)
+					   .str(),
+				   LOG_STARTUP);
 
 		DBconn::ClearConnections(true);
 
@@ -257,8 +228,7 @@ void MainLoop()
 		{
 			LogMessage(
 				"Stopping pgAgent: Couldn't establish the primary connection with the database server.",
-				LOG_ERROR
-			);
+				LOG_ERROR);
 		}
 		WaitAWhile();
 	} while (1);
