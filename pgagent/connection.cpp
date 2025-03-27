@@ -14,20 +14,19 @@
 
 namespace ip = boost::asio::ip;
 
-DBconn   *DBconn::ms_primaryConn = NULL;
-CONNinfo  DBconn::ms_basicConnInfo;
+DBconn *DBconn::ms_primaryConn = NULL;
+CONNinfo DBconn::ms_basicConnInfo;
 
-static boost::mutex  s_poolLock;
+static boost::mutex s_poolLock;
 
 DBconn::DBconn(const std::string &connectString)
-: m_inUse(false), m_next(NULL), m_prev(NULL), m_minorVersion(0),
-	m_majorVersion(0)
+	: m_inUse(false), m_next(NULL), m_prev(NULL), m_minorVersion(0),
+	  m_majorVersion(0)
 {
 	m_connStr = connectString;
 
 	Connect(connectString);
 }
-
 
 bool DBconn::Connect(const std::string &connStr)
 {
@@ -42,12 +41,9 @@ bool DBconn::Connect(const std::string &connStr)
 
 		return false;
 	}
- 	LogMessage("Executing LISTEN pgagent_notify", LOG_DEBUG);
-    ExecuteVoid("LISTEN pgagent_notify;");
 
 	return (m_conn != NULL);
 }
-
 
 DBconn::~DBconn()
 {
@@ -58,54 +54,6 @@ DBconn::~DBconn()
 		m_conn = NULL;
 	}
 }
-
-bool DBconn::PollNotification()
-{
-    if (!m_conn)
-    {
-        LogMessage("PollNotification: Connection is NULL!", LOG_ERROR);
-        return false;
-    }
-
-    if (!PQconsumeInput(m_conn))
-    {
-        LogMessage("PollNotification: Failed to consume input", LOG_ERROR);
-        return false;
-    }
-
-    if (PQisBusy(m_conn))
-    {
-        LogMessage("PollNotification: Connection is busy", LOG_DEBUG);
-        return false;
-    }
-
-    PGnotify *notify = PQnotifies(m_conn);
-    if (notify)
-    {
-		std::string payload = notify->extra ? notify->extra : "(no payload)";
-        std::string notificationMessage = "🔔 PollNotification: Received [" + std::string(notify->relname) + "] -> Payload: " + payload;
-        LogMessage(notificationMessage, LOG_DEBUG);
-        PQfreemem(notify);
-        return true;
-    }
-
-    LogMessage("PollNotification: No notifications", LOG_DEBUG);
-    return false;
-}
-
-
-std::string DBconn::GetNotificationPayload()
-{
-    PGnotify *notify = PQnotifies(m_conn);
-    if (notify)
-    {
-        std::string payload = notify->extra;
-        PQfreemem(notify);
-        return payload;
-    }
-    return "";
-}
-
 
 std::string DBconn::qtDbString(const std::string &value)
 {
@@ -151,9 +99,8 @@ DBconn *DBconn::InitConnection(const std::string &connectString)
 		locker = (boost::mutex *)NULL;
 		LogMessage(
 			"Primary connection string is not valid!\n" +
-			ms_basicConnInfo.GetError(),
-			LOG_ERROR
-		);
+				ms_basicConnInfo.GetError(),
+			LOG_ERROR);
 	}
 
 	ms_primaryConn = new DBconn(ms_basicConnInfo.Get());
@@ -163,8 +110,7 @@ DBconn *DBconn::InitConnection(const std::string &connectString)
 		// Unlock the mutex before logging error.
 		locker = (boost::mutex *)NULL;
 		LogMessage(
-			"Failed to create primary connection... out of memory?", LOG_ERROR
-		);
+			"Failed to create primary connection... out of memory?", LOG_ERROR);
 	}
 
 	if (ms_primaryConn->m_conn == NULL)
@@ -174,15 +120,13 @@ DBconn *DBconn::InitConnection(const std::string &connectString)
 		ms_primaryConn = NULL;
 
 		LogMessage(
-			"Failed to create primary connection: " + error, LOG_WARNING
-		);
+			"Failed to create primary connection: " + error, LOG_WARNING);
 		return NULL;
 	}
 	ms_primaryConn->m_inUse = true;
 
 	return ms_primaryConn;
 }
-
 
 DBconn *DBconn::Get(const std::string &_connStr, const std::string &db)
 {
@@ -194,8 +138,8 @@ DBconn *DBconn::Get(const std::string &_connStr, const std::string &db)
 		{
 			LogMessage(
 				"Failed to parse the connection string \"" + _connStr +
-				"\" with error: " + connInfo.GetError(), LOG_WARNING
-			);
+					"\" with error: " + connInfo.GetError(),
+				LOG_WARNING);
 			return NULL;
 		}
 		connStr = connInfo.Get();
@@ -216,10 +160,10 @@ DBconn *DBconn::Get(const std::string &_connStr, const std::string &db)
 		if (thisConn && !thisConn->m_inUse && thisConn->m_connStr == connStr)
 		{
 			LogMessage((
-				"Using the existing connection '" +
-				CONNinfo::Parse(thisConn->m_connStr, NULL, NULL, true) +
-				"'..."), LOG_DEBUG
-			);
+						   "Using the existing connection '" +
+						   CONNinfo::Parse(thisConn->m_connStr, NULL, NULL, true) +
+						   "'..."),
+					   LOG_DEBUG);
 			thisConn->m_inUse = true;
 
 			return thisConn;
@@ -231,16 +175,15 @@ DBconn *DBconn::Get(const std::string &_connStr, const std::string &db)
 
 	} while (thisConn != NULL);
 
-
 	// No suitable connection was found, so create a new one.
 	DBconn *newConn = new DBconn(connStr);
 
 	if (newConn && newConn->m_conn)
 	{
 		LogMessage((
-			"Allocating new connection for the database with connection string: " +
-			CONNinfo::Parse(newConn->m_connStr, NULL, NULL, true) + "..."
-			), LOG_DEBUG);
+					   "Allocating new connection for the database with connection string: " +
+					   CONNinfo::Parse(newConn->m_connStr, NULL, NULL, true) + "..."),
+				   LOG_DEBUG);
 
 		newConn->m_inUse = true;
 		newConn->m_prev = lastConn;
@@ -250,15 +193,11 @@ DBconn *DBconn::Get(const std::string &_connStr, const std::string &db)
 	{
 		std::string warnMsg;
 		if (connStr.empty())
-			warnMsg = (
-				"Failed to create new connection to database '" + db + "'" +
-				(newConn != NULL ? ": " + newConn->GetLastError() : "")
-			);
+			warnMsg = ("Failed to create new connection to database '" + db + "'" +
+					   (newConn != NULL ? ": " + newConn->GetLastError() : ""));
 		else
-			warnMsg = (
-				"Failed to create new connection for connection string '" + connStr +
-				"'" + (newConn != NULL ? ": " + newConn->GetLastError() : "")
-			);
+			warnMsg = ("Failed to create new connection for connection string '" + connStr +
+					   "'" + (newConn != NULL ? ": " + newConn->GetLastError() : ""));
 		LogMessage(warnMsg, LOG_STARTUP);
 
 		if (newConn != NULL)
@@ -273,7 +212,6 @@ DBconn *DBconn::Get(const std::string &_connStr, const std::string &db)
 	return newConn;
 }
 
-
 void DBconn::Return()
 {
 	MutexLocker locker(&s_poolLock);
@@ -284,9 +222,9 @@ void DBconn::Return()
 	m_inUse = false;
 
 	LogMessage((
-		"Returning the connection to the connection pool: '" +
-		CONNinfo::Parse(m_connStr, NULL, NULL, true) + "'..."
-		), LOG_DEBUG);
+				   "Returning the connection to the connection pool: '" +
+				   CONNinfo::Parse(m_connStr, NULL, NULL, true) + "'..."),
+			   LOG_DEBUG);
 }
 
 void DBconn::ClearConnections(bool all)
@@ -348,14 +286,14 @@ void DBconn::ClearConnections(bool all)
 		}
 
 		LogMessage((boost::format(
-			"Connection stats: total - %d, free - %d, deleted - %d"
-		) % total % free % deleted).str(), LOG_DEBUG);
-
+						"Connection stats: total - %d, free - %d, deleted - %d") %
+					total % free % deleted)
+					   .str(),
+				   LOG_DEBUG);
 	}
 	else
 		LogMessage("No connections found!", LOG_DEBUG);
 }
-
 
 DBresult *DBconn::Execute(const std::string &query)
 {
@@ -370,7 +308,6 @@ DBresult *DBconn::Execute(const std::string &query)
 	}
 	return res;
 }
-
 
 std::string DBconn::ExecuteScalar(const std::string &query)
 {
@@ -388,7 +325,6 @@ std::string DBconn::ExecuteScalar(const std::string &query)
 	return data;
 }
 
-
 int DBconn::ExecuteVoid(const std::string &query)
 {
 	int rows = -1;
@@ -401,7 +337,6 @@ int DBconn::ExecuteVoid(const std::string &query)
 
 	return rows;
 }
-
 
 std::string DBconn::GetLastError()
 {
@@ -436,7 +371,6 @@ DBresult::DBresult(DBconn *conn, const std::string &query)
 		conn->m_lastError = PQerrorMessage(conn->m_conn);
 }
 
-
 DBresult::~DBresult()
 {
 	if (m_result)
@@ -445,7 +379,6 @@ DBresult::~DBresult()
 		m_result = NULL;
 	}
 }
-
 
 std::string DBresult::GetString(int col) const
 {
@@ -457,7 +390,6 @@ std::string DBresult::GetString(int col) const
 	}
 	return str;
 }
-
 
 std::string DBresult::GetString(const std::string &colname) const
 {
@@ -473,16 +405,13 @@ std::string DBresult::GetString(const std::string &colname) const
 	return GetString(col);
 }
 
-
-
 const std::string CONNinfo::Parse(
-	const std::string& connStr, std::string *error,
-	std::string *dbName, bool forLogging
-	)
+	const std::string &connStr, std::string *error,
+	std::string *dbName, bool forLogging)
 {
-	std::stringstream  res;
-	PQconninfoOption  *opts, *opt;
-	char              *errmsg = nullptr;
+	std::stringstream res;
+	PQconninfoOption *opts, *opt;
+	char *errmsg = nullptr;
 
 	if (error != nullptr)
 		*error = "";
@@ -508,13 +437,13 @@ const std::string CONNinfo::Parse(
 		}
 		else if (error != nullptr)
 		{
-				*error = "Failed to parse the connection string";
+			*error = "Failed to parse the connection string";
 		}
 		return res.str();
 	}
 
 	std::string val;
-	bool        atleastOneParameter = false;
+	bool atleastOneParameter = false;
 
 	LogMessage("Parsing connection information...", LOG_DEBUG);
 
@@ -531,9 +460,10 @@ const std::string CONNinfo::Parse(
 		if (forLogging)
 		{
 			LogMessage((
-				boost::format("%s: %s") % opt->keyword %
-				(opt->dispchar[0] == '*' ? "*****" : val)).str(), LOG_DEBUG
-			);
+						   boost::format("%s: %s") % opt->keyword %
+						   (opt->dispchar[0] == '*' ? "*****" : val))
+						   .str(),
+					   LOG_DEBUG);
 		}
 
 		// Create plain keyword=value connection string.  used
@@ -547,8 +477,7 @@ const std::string CONNinfo::Parse(
 
 		if (
 			dbName != NULL &&
-			strncmp(opt->keyword, "dbname", strlen(opt->keyword)) == 0
-		)
+			strncmp(opt->keyword, "dbname", strlen(opt->keyword)) == 0)
 			*dbName = val;
 		res << opt->keyword << "=" << val;
 	}
@@ -558,8 +487,7 @@ const std::string CONNinfo::Parse(
 	return res.str();
 }
 
-
-bool CONNinfo::Set(const std::string& connStr)
+bool CONNinfo::Set(const std::string &connStr)
 {
 	m_connStr = CONNinfo::Parse(connStr, &m_error, &m_dbName);
 
@@ -572,6 +500,5 @@ const std::string CONNinfo::Get(const std::string &dbName) const
 		return m_connStr;
 
 	return (
-		m_connStr + " dbname=" + "" + (dbName.empty() ? m_dbName : dbName)
-	);
+		m_connStr + " dbname=" + "" + (dbName.empty() ? m_dbName : dbName));
 }
